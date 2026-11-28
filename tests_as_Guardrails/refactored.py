@@ -173,7 +173,7 @@ def _ready_tasks(remaining, completed, policy, ranks):
              if all(dep in completed for dep in task.dependencies)]
     priority = {"fixed": lambda t: (t.id,),
                 "longest": lambda t: (-t.duration, t.id),
-                "critical": lambda t: (-ranks[t.id], t.id)}[policy]
+                "critical": lambda t: (-t.duration, t.id)}[policy]
     ready.sort(key=priority)
     return ready
 

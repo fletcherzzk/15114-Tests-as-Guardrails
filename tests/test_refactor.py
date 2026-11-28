@@ -71,7 +71,7 @@ class SchedulingTests(unittest.TestCase):
             {"task_id": 2, "processor_id": 1, "start": 9, "end": 13},
         ])
         self.assertEqual(longest["timeline"], [
-            {"task_id": 2, "processor_id": 1, "start": 0, "end": 5},
+            {"task_id": 2, "processor_id": 1, "start": 0, "end": 4},
             {"task_id": 1, "processor_id": 1, "start": 4, "end": 6},
             {"task_id": 3, "processor_id": 1, "start": 6, "end": 13},
         ])
