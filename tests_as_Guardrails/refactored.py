@@ -1,0 +1,262 @@
+"""Pure DAG generation, dependency analysis, and policy scheduling functions.
+
+Task IDs follow dependency levels, from left to right within each level.
+The original recursive order is retained for validating version 1.0.0 saves.
+Each policy runner takes tasks and a processor count and returns its own result.
+"""
+
+from dataclasses import asdict, dataclass, replace
+import heapq
+from typing import Any
+
+SIMULATOR_VERSION = "1.1.0"
+SUPPORTED_SIMULATOR_VERSIONS = ("1.0.0", SIMULATOR_VERSION)
+POLICIES = ("fixed", "longest", "critical")
+
+
+class ValidationError(ValueError):
+    """A configuration is outside the supported model."""
+
+
+class StructuralError(ValueError):
+    """A graph contains invalid dependencies or a cycle."""
+
+
+@dataclass(frozen=True)
+class Task:
+    id: int
+    type: str
+    duration: int
+    dependencies: tuple[int, ...] = ()
+    size: int | None = None
+    depth: int = 0
+
+    def to_dict(self):
+        value = asdict(self)
+        value["dependencies"] = list(self.dependencies)
+        return value
+
+
+def integer(value, name, low, high):
+    # bool is an int subclass, but is never a valid numeric input here.
+    if type(value) is not int or not low <= value <= high:
+        raise ValidationError(f"{name} must be an integer from {low} to {high}.")
+    return value
+
+
+def generate_map(durations):
+    if not isinstance(durations, list) or not 2 <= len(durations) <= 16:
+        raise ValidationError("Map requires 2–16 task durations.")
+    return [Task(i + 1, "map", integer(d, f"Task {i + 1} duration", 1, 20))
+            for i, d in enumerate(durations)]
+
+
+def _generate_dc_preorder(n, k, b, split, base, combine):
+    integer(n, "Problem size n", 2, 8)
+    integer(k, "Split parameter k", 2, 8)
+    integer(b, "Base threshold b", 1, n - 1)
+    for name, duration in (("Split duration", split), ("Base duration", base),
+                           ("Combine duration", combine)):
+        integer(duration, name, 1, 20)
+    tasks = []
+
+    def add(kind, duration, deps, size, depth):
+        task = Task(len(tasks) + 1, kind, duration, tuple(deps), size, depth)
+        tasks.append(task)
+        if len(tasks) > 22:
+            raise ValidationError("D&C may generate at most 22 computation tasks.")
+        return task.id
+
+    def visit(size, deps, depth):
+        if size <= b:
+            return add("base", base, deps, size, depth)
+        start = add("split", split, deps, size, depth)
+        small = min((size + k - 1) // k, size // 2)
+        left = visit(small, [start], depth + 1)
+        right = visit(size - small, [start], depth + 1)
+        return add("combine", combine, [left, right], size, depth)
+
+    visit(n, [], 0)
+    return tasks
+
+
+def generate_dc(n, k, b, split, base, combine):
+    tasks = _generate_dc_preorder(n, k, b, split, base, combine)
+    levels = {}
+    for task in tasks:
+        levels[task.id] = 1 + max((levels[dep] for dep in task.dependencies), default=-1)
+    # Recursive order already runs left to right within a dependency level,
+    # including combines in unbalanced trees. Stable sorting preserves that order.
+    ordered = sorted(tasks, key=lambda task: levels[task.id])
+    ids = {task.id: index for index, task in enumerate(ordered, 1)}
+    return [replace(task, id=ids[task.id],
+                    dependencies=tuple(ids[dep] for dep in task.dependencies))
+            for task in ordered]
+
+
+def parse_configuration(raw: Any, *, simulator_version=SIMULATOR_VERSION):
+    if simulator_version not in SUPPORTED_SIMULATOR_VERSIONS:
+        raise ValidationError("Unsupported simulator version.")
+    if not isinstance(raw, dict):
+        raise ValidationError("Configuration must be a JSON object.")
+    form = raw.get("form")
+    params = raw.get("parameters")
+    if not isinstance(params, dict):
+        raise ValidationError("Parameters must be a JSON object.")
+    if form == "map":
+        durations = params.get("durations")
+        tasks = generate_map(durations)
+        parameters = {"durations": durations.copy()}
+    elif form == "dc":
+        keys = ("n", "k", "b", "split_duration", "base_duration", "combine_duration")
+        parameters = {key: params.get(key) for key in keys}
+        generator = _generate_dc_preorder if simulator_version == "1.0.0" else generate_dc
+        tasks = generator(*(parameters[key] for key in keys))
+    else:
+        raise ValidationError("Choose Map or Divide-and-Conquer.")
+    processors = integer(raw.get("processors"), "Processor count P", 1, len(tasks) - 1)
+    policy = raw.get("policy")
+    if policy not in POLICIES:
+        raise ValidationError("Policy must be fixed, longest, or critical.")
+    return {"form": form, "parameters": parameters, "processors": processors,
+            "policy": policy}, tasks
+
+
+def analyze_graph(tasks):
+    """Kahn topological order followed by reverse-order remaining-path ranks."""
+    by_id = {task.id: task for task in tasks}
+    if not tasks or len(by_id) != len(tasks):
+        raise StructuralError("Task IDs must be unique and the graph nonempty.")
+    successors = {task.id: [] for task in tasks}
+    indegree = {}
+    for task in tasks:
+        if type(task.id) is not int or type(task.duration) is not int or task.duration <= 0:
+            raise StructuralError("Task IDs and positive durations must be integers.")
+        if len(set(task.dependencies)) != len(task.dependencies):
+            raise StructuralError("Duplicate dependency.")
+        indegree[task.id] = len(task.dependencies)
+        for dep in task.dependencies:
+            if dep not in by_id:
+                raise StructuralError("Dependency refers to a missing task.")
+            successors[dep].append(task.id)
+    ready = [task_id for task_id, count in indegree.items() if count == 0]
+    heapq.heapify(ready)
+    order = []
+    while ready:
+        task_id = heapq.heappop(ready)
+        order.append(task_id)
+        for child in successors[task_id]:
+            indegree[child] -= 1
+            if indegree[child] == 0:
+                heapq.heappush(ready, child)
+    if len(order) != len(tasks):
+        raise StructuralError("Unfinished tasks have no running or ready tasks: dependency cycle.")
+    ranks = {}
+    for task_id in reversed(order):
+        ranks[task_id] = by_id[task_id].duration + max(
+            (ranks[child] for child in successors[task_id]), default=0)
+    return ranks
+
+
+def simulate(tasks, processors, policy):
+    """Validate and simulate one policy, independently of run_experiment."""
+    integer(processors, "Processor count P", 1, len(tasks) - 1)
+    if policy not in POLICIES:
+        raise ValidationError("Unknown policy.")
+    ranks = analyze_graph(tasks)
+    return _simulate(tasks, processors, policy, ranks)
+
+
+def _ready_tasks(remaining, completed, policy, ranks):
+    """Return ready tasks in policy order, breaking ties by numeric task ID."""
+    ready = [task for task in remaining.values()
+             if all(dep in completed for dep in task.dependencies)]
+    priority = {"fixed": lambda t: (t.id,),
+                "longest": lambda t: (-t.duration, t.id),
+                "critical": lambda t: (-ranks[t.id], t.id)}[policy]
+    ready.sort(key=priority)
+    return ready
+
+
+def _idle_intervals(timeline, processors, makespan):
+    """Return gaps in processor order, including idle time after the last task."""
+    idle = []
+    for processor in range(1, processors + 1):
+        cursor = 0
+        for entry in (e for e in timeline if e["processor_id"] == processor):
+            if entry["start"] > cursor:
+                idle.append({"processor_id": processor, "start": cursor, "end": entry["start"]})
+            cursor = entry["end"]
+        if cursor < makespan:
+            idle.append({"processor_id": processor, "start": cursor, "end": makespan})
+    return idle
+
+
+def _metrics(tasks, processors, makespan, ranks):
+    """Calculate work/span and schedule metrics using the analyzed graph."""
+    work = sum(task.duration for task in tasks)
+    span = max(ranks.values())
+    return {"work": work, "span": span, "average_parallelism": work / span,
+            "makespan": makespan, "speedup": work / makespan,
+            "utilization": work / (processors * makespan),
+            "lower_bound": max(work / processors, span)}
+
+
+def _simulate(tasks, processors, policy, ranks):
+    """Schedule validated inputs using precomputed ranks; never mutate ranks."""
+    remaining = {task.id: task for task in tasks}
+    completed = set()
+    running = []  # (finish time, processor ID, task ID)
+    available = list(range(1, processors + 1))
+    timeline = []
+    time = 0
+    while remaining or running:
+        # Release EVERY completion at this event before recomputing the ready set.
+        while running and running[0][0] == time:
+            _, processor, task_id = heapq.heappop(running)
+            completed.add(task_id)
+            heapq.heappush(available, processor)
+        ready = _ready_tasks(remaining, completed, policy, ranks)
+
+        # Assign the highest-priority ready tasks to the lowest available IDs.
+        for task in ready[:len(available)]:
+            processor = heapq.heappop(available)
+            end = time + task.duration
+            timeline.append({"task_id": task.id, "processor_id": processor,
+                             "start": time, "end": end})
+            heapq.heappush(running, (end, processor, task.id))
+            del remaining[task.id]
+        # Advance directly to the next completion after all assignments.
+        if running:
+            time = running[0][0]
+        elif remaining:
+            raise StructuralError("Unfinished tasks have no running or ready tasks.")
+    return {"policy": policy, "timeline": timeline,
+            "idle_intervals": _idle_intervals(timeline, processors, time),
+            "metrics": _metrics(tasks, processors, time, ranks)}
+
+
+def simulate_fixed(tasks, processors):
+    """Return an independent run using numeric task-ID order."""
+    return simulate(tasks, processors, "fixed")
+
+
+def simulate_longest(tasks, processors):
+    """Return an independent run prioritizing longer ready tasks."""
+    return simulate(tasks, processors, "longest")
+
+
+def simulate_critical(tasks, processors):
+    """Return an independent run prioritizing remaining critical paths."""
+    return simulate(tasks, processors, "critical")
+
+
+def run_experiment(raw, *, simulator_version=SIMULATOR_VERSION):
+    config, tasks = parse_configuration(raw, simulator_version=simulator_version)
+    processors = config["processors"]
+    ranks = analyze_graph(tasks)
+    comparisons = {policy: _simulate(tasks, processors, policy, ranks)
+                   for policy in POLICIES}
+    return {"configuration": config, "simulator_version": simulator_version,
+            "dag": [{**task.to_dict(), "rank": ranks[task.id]} for task in tasks],
+            "results": comparisons[config["policy"]], "comparisons": comparisons}

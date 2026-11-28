@@ -16,7 +16,7 @@ from uuid import uuid4
 
 import portalocker
 
-from .simulation import (
+from .refactored import (
     SIMULATOR_VERSION, SUPPORTED_SIMULATOR_VERSIONS, analyze_graph,
     parse_configuration, run_experiment,
 )
@@ -154,7 +154,7 @@ class EventStore:
                 raise ValueError("Invalid stored DAG task")
             if stored.get("rank") != ranks[expected.id]:
                 raise ValueError("Invalid stored critical-path rank")
-        from .simulation import POLICIES, simulate
+        from .refactored import POLICIES, simulate
         comparisons = result.get("comparisons")
         if not isinstance(comparisons, dict) or set(comparisons) != set(POLICIES):
             raise ValueError("Invalid stored comparisons")

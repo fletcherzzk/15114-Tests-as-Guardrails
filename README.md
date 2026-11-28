@@ -29,10 +29,10 @@ searching for an optimal schedule. See the [specification](Parallel_Scheduling_L
    threshold, and split/base/combine costs.
 3. Choose a processor count with `1 <= P < N`, where `N` is the number of
    computation tasks, and select a scheduling policy.
-4. Click **Run simulation** to compare policies on the same inputs. Map displays
-   Fixed order and Longest Task First / Critical Path First because the latter
-   priorities are equivalent for independent tasks. Divide-and-Conquer compares
-   all three policies separately.
+4. Click **Run simulation** to compare policies on the same inputs. Both
+   computation forms display separate Fixed order, Longest task first, and
+   Critical path first runs. The latter two produce equivalent schedules for
+   independent Map tasks.
 5. Use **View** in the comparison table to inspect a schedule. Select a timeline
    block for task details, or expand **Computation dependencies** and select a node.
 6. Register or log in, name an experiment, and click **Save** to keep it.
@@ -156,6 +156,12 @@ The repository does not identify a specific adapted outside code excerpt.
 
 - `frontend/`: static interface, API configuration, Pages builder, and tests.
 - `backend/`: Flask API, simulation logic, authentication, storage, and tests.
+  Pure graph generation, graph analysis, and scheduling functions live in
+  `backend/lab/refactored.py`; `simulation.py` preserves existing imports.
+  `simulate_fixed`, `simulate_longest`, and `simulate_critical` each return one
+  policy run, and `run_experiment` collects all three without changing the API.
+  This Python extraction needs no Node module configuration. The frontend
+  already uses `addEventListener` rather than inline `onclick` handlers.
 - `other/`: supporting documentation, Render configuration, and ignored artifacts.
 - `.github/workflows/`: GitHub Actions workflows.
 

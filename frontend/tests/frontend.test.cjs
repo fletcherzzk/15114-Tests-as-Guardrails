@@ -115,18 +115,18 @@ test("initial Map results, shared axis, task selection, and JSON key-order equal
     assert.equal(page.get("metrics").children.length, 8);
     assert.equal(page.get("stale-note").hidden, true);
     assert.equal(page.get("save-button").disabled, false);
-    assert.equal(page.get("comparison").children.length, 2);
+    assert.equal(page.get("comparison").children.length, 3);
     const resultPanels = [...page.get("result-content").children];
     assert.ok(resultPanels.indexOf(page.get("comparison").closest("section")) <
       resultPanels.indexOf(page.get("timeline").closest("section")));
     assert.deepEqual(Array.from(page.get("policy").options, (option) => [option.value, option.textContent]), [
-      ["fixed", "Fixed order"], ["longest", "Longest Task First / Critical Path First"],
+      ["fixed", "Fixed order"], ["longest", "Longest task first"], ["critical", "Critical path first"],
     ]);
-    assert.equal(page.get("comparison-count").textContent, "2 POLICY OPTIONS");
-    assert.equal(page.get("policy-value").textContent, "Longest Task First / Critical Path First");
-    assert.equal(page.get("comparison").children[1].firstChild.firstChild.textContent, "Longest Task First / Critical Path First");
+    assert.equal(page.get("comparison-count").textContent, "3 POLICY OPTIONS");
+    assert.equal(page.get("policy-value").textContent, "Longest task first");
+    assert.equal(page.get("comparison").children[1].firstChild.firstChild.textContent, "Longest task first");
     assert.equal(page.get("comparison").querySelectorAll(".selected-policy").length, 1);
-    assert.match(page.get("result-label").textContent, /Longest Task First \/ Critical Path First/);
+    assert.match(page.get("result-label").textContent, /Longest task first/);
     const canvas = page.get("timeline").querySelector("svg");
     assert.equal(canvas.querySelectorAll(".processor-label").length, 2);
     const tracks = [...canvas.querySelectorAll(".processor-track")];
@@ -167,6 +167,12 @@ test("presets, stale input handling, rerun, and policy inspection", async () => 
     page.get("comparison").querySelectorAll("button")[1].click();
     assert.equal(page.get("policy").value, "longest");
     assert.equal(page.get("comparison").querySelectorAll("button")[1].getAttribute("aria-pressed"), "true");
+    page.get("comparison").querySelectorAll("button")[2].click();
+    assert.equal(page.get("policy").value, "critical");
+    assert.equal(page.get("comparison").querySelectorAll("button")[2].getAttribute("aria-pressed"), "true");
+    assert.match(page.get("result-label").textContent, /Critical path first/);
+    assert.equal(page.get("stale-note").hidden, true);
+    page.get("comparison").querySelectorAll("button")[1].click();
     await run(page);
     assert.equal(JSON.parse(page.requests.filter((request) => request.url.endsWith("/simulate")).at(-1).body).policy, "longest");
   } finally { page.dom.window.close(); }
@@ -181,7 +187,7 @@ test("D&C generated task count, joins, collapsible graph, and validation", async
       ["fixed", "Fixed order"], ["longest", "Longest task first"], ["critical", "Critical path first"],
     ]);
     assert.match(page.get("configuration-note").textContent, /all three/);
-    assert.equal(page.get("comparison").children.length, 2, "Unrun edits retain the prior Map comparison");
+    assert.equal(page.get("comparison").children.length, 3, "Unrun edits retain the prior Map comparison");
     input(page, "policy", "critical");
     assert.equal(page.get("policy-value").textContent, "Critical path first");
     input(page, "k", 3); input(page, "processors", 3);
@@ -281,7 +287,7 @@ test("registration, private save/load/rename/delete, safe names, logout and logi
   } finally { page.dom.window.close(); }
 });
 
-test("saved Map critical policy loads into the combined option without stale results", async () => {
+test("saved Map critical policy loads into its separate option without stale results", async () => {
   const origin = new URL(frontendBase).origin;
   let token, csrf;
   async function request(route, method = "GET", data) {
@@ -303,29 +309,29 @@ test("saved Map critical policy loads into the combined option without stale res
   const page = await openPage(token);
   try {
     await waitFor(() => page.get("history").querySelector(".history-card"), "legacy saved history");
-    assert.match(page.get("history").textContent, /Longest Task First \/ Critical Path First/);
+    assert.match(page.get("history").textContent, /Critical path first/);
     // Loading must also rebuild options when the current input is D&C.
     const radio = page.window.document.querySelector('input[name="form"][value="dc"]');
     radio.checked = true; radio.dispatchEvent(new page.window.Event("change", { bubbles: true }));
     input(page, "policy", "critical");
     page.get("history").querySelector("button").click();
     await waitFor(() => page.get("durations").value === "2, 5, 3", "saved critical Map restoration");
-    assert.equal(page.get("policy").value, "longest");
-    assert.equal(page.get("policy").options.length, 2);
-    assert.equal(page.get("policy-value").textContent, "Longest Task First / Critical Path First");
+    assert.equal(page.get("policy").value, "critical");
+    assert.equal(page.get("policy").options.length, 3);
+    assert.equal(page.get("policy-value").textContent, "Critical path first");
     assert.equal(page.get("preset-value").textContent, "Custom durations");
-    assert.equal(page.get("comparison").children.length, 2);
-    assert.equal(page.get("comparison").children[1].className, "selected-policy");
-    assert.equal(page.get("comparison").querySelectorAll("button")[1].textContent, "Viewing");
+    assert.equal(page.get("comparison").children.length, 3);
+    assert.equal(page.get("comparison").children[2].className, "selected-policy");
+    assert.equal(page.get("comparison").querySelectorAll("button")[2].textContent, "Viewing");
     assert.equal(page.get("stale-note").hidden, true);
     assert.equal(page.get("save-button").disabled, false);
-    assert.match(page.get("result-label").textContent, /Longest Task First \/ Critical Path First/);
+    assert.match(page.get("result-label").textContent, /Critical path first/);
     input(page, "durations", "2, 5, 4");
     assert.equal(page.get("stale-note").hidden, false);
     input(page, "durations", "2, 5, 3");
     assert.equal(page.get("stale-note").hidden, true);
     await run(page);
-    assert.equal(JSON.parse(page.requests.filter((item) => item.url.endsWith("/simulate")).at(-1).body).policy, "longest");
+    assert.equal(JSON.parse(page.requests.filter((item) => item.url.endsWith("/simulate")).at(-1).body).policy, "critical");
   } finally { page.dom.window.close(); }
 });
 

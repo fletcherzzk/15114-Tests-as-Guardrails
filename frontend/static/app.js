@@ -2,10 +2,9 @@
 
 const $ = (id) => document.getElementById(id);
 const policies = { fixed: "Fixed order", longest: "Longest task first", critical: "Critical path first" };
-const combinedMapPolicy = "Longest Task First / Critical Path First";
-function displayedPolicy(form, policy) { return form === "map" && policy === "critical" ? "longest" : policy; }
-function policyLabel(form, policy) { return form === "map" && displayedPolicy(form, policy) === "longest" ? combinedMapPolicy : policies[policy]; }
-function policyChoices(form) { return Object.keys(policies).filter((policy) => form !== "map" || policy !== "critical"); }
+function displayedPolicy(form, policy) { return policy; }
+function policyLabel(form, policy) { return policies[policy]; }
+function policyChoices(form) { return Object.keys(policies); }
 function refreshPolicyOptions(form, selected = $("policy").value) {
   const select = $("policy");
   if (select.dataset.form !== form) {
@@ -126,7 +125,6 @@ function canonical(value) {
 }
 function isDirty() {
   if (!state.experiment) return false;
-  // Older saved Map runs may use critical; its displayed choice is longest.
   const comparable = (config) => canonical({ ...config, policy: displayedPolicy(config.form, config.policy) });
   try { return JSON.stringify(comparable(configuration())) !== JSON.stringify(comparable(state.experiment.configuration)); }
   catch { return true; }
@@ -141,7 +139,7 @@ function refreshInputs() {
   const map = document.querySelector('input[name="form"]:checked').value === "map";
   refreshPolicyOptions(map ? "map" : "dc");
   $("preset-value").textContent = $("preset").selectedOptions[0]?.textContent || "";
-  $("configuration-note").textContent = map ? "Every run compares both policy options." : "Every run compares all three policies.";
+  $("configuration-note").textContent = "Every run compares all three policies.";
   $("map-inputs").hidden = !map;
   $("dc-inputs").hidden = map;
   for (const node of $("map-inputs").querySelectorAll("input, select, textarea")) node.disabled = !map;
@@ -273,7 +271,7 @@ function renderComparison() {
   });
   $("comparison").replaceChildren(...rows);
   $("comparison-count").textContent = `${choices.length} POLICY OPTIONS`;
-  $("comparison-note").textContent = `Fastest here compares these ${form === "map" ? "two" : "three"} policy options; it does not establish an optimal schedule.` + (form === "map" ? " For independent Map tasks, longest task and critical path priorities are equivalent." : "");
+  $("comparison-note").textContent = "Fastest here compares these three policy options; it does not establish an optimal schedule." + (form === "map" ? " For independent Map tasks, longest task and critical path priorities are equivalent." : "");
 }
 
 function renderDag() {

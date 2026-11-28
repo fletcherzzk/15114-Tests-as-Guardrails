@@ -9,3 +9,6 @@ storage/
 artifacts/
 .coverage
 node_modules/
+.npm-cache/
+.uv-cache/
+.uv-python/

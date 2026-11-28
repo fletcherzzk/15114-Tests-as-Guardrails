@@ -15,7 +15,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from lab.auth import AuthLimiter, credentials
 from lab.sessions import HeaderSessionInterface
-from lab.simulation import StructuralError, ValidationError, run_experiment
+from lab.refactored import StructuralError, ValidationError, run_experiment
 from lab.storage import ConflictError, EventStore, NotFoundError, StorageError, experiment_name
 
 
